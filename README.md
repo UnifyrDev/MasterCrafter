@@ -65,3 +65,10 @@ This is the Timeline Editor, Do you have quests you have made and those are set 
    ```
 
 4. On Windows, you can also launch it with `Start MasterCrafter.bat`.
+
+## Plans
+
+- Online Syncing (Working an a REST Api where you can create an account and Live Sync from your pc to your laptop and back!)
+- Better Note System
+- Better Graph System
+- Lets see the Suggestions come in!
