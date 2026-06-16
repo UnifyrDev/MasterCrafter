@@ -6,6 +6,9 @@ MasterCrafter is a local-first desktop app for D&D campaign preparation. It keep
 
 ## Highlights
 
+> [!CAUTION]
+> Exporting is just the entire Campaign, Working on version where Player Data isnt exported.
+
 - Create, rename, open, delete, import, and export campaign workspaces.
 - Model NPCs, landmarks, shrines, stores, items, notes, and custom entity types.
 - Import map images and place point, region, and path markers linked to entities.
