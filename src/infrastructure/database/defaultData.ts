@@ -1,0 +1,187 @@
+import type { CampaignCalendarDto, CustomFieldDefinitionDto, EntityTypeDefinitionDto } from "@shared/contracts";
+import { createId, nowIso } from "@shared/utils";
+
+export const DEFAULT_CALENDAR: CampaignCalendarDto = {
+  name: "Campaign Calendar",
+  epochLabel: "Year 1, First Dawn",
+  cycleLabel: "months",
+  months: [
+    { name: "First Dawn", days: 28 },
+    { name: "Goldmorn", days: 28 },
+    { name: "High Sun", days: 30 },
+    { name: "Harvestfall", days: 30 },
+    { name: "Long Night", days: 28 },
+    { name: "Deep Frost", days: 28 },
+  ],
+  weekdays: [
+    "Moonsday",
+    "Earthday",
+    "Windday",
+    "Fireday",
+    "Watersday",
+    "Starday",
+    "Restday",
+  ],
+  hoursPerDay: 24,
+  minutesPerHour: 60,
+  timezoneLabel: "Realm Standard Time",
+};
+
+function field(
+  key: string,
+  label: string,
+  kind: CustomFieldDefinitionDto["kind"],
+  required = false,
+  options: string[] = [],
+  linkedTypeKey: string | null = null,
+  defaultValue: string | number | boolean | null = null,
+): CustomFieldDefinitionDto {
+  return {
+    id: createId(),
+    key,
+    label,
+    kind,
+    required,
+    options,
+    linkedTypeKey,
+    defaultValue,
+  };
+}
+
+export function createBuiltinEntityTypes(workspaceId: string): EntityTypeDefinitionDto[] {
+  const timestamp = nowIso();
+
+  return [
+    {
+      id: createId(),
+      workspaceId,
+      typeKey: "npc",
+      displayName: "NPC",
+      icon: "user",
+      color: "#8fb4ff",
+      description: "Non-player character with relationships and optional quest hooks.",
+      builtin: true,
+      fieldDefinitions: [
+        field("role", "Role", "text"),
+        field("alignment", "Alignment", "select", false, ["Good", "Neutral", "Evil"]),
+        field("faction", "Faction", "text"),
+        field("location", "Current Location", "relation", false, [], "landmark"),
+      ],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+    {
+      id: createId(),
+      workspaceId,
+      typeKey: "landmark",
+      displayName: "Landmark",
+      icon: "map-pin",
+      color: "#9fe7c4",
+      description: "A place of interest, clue, or encounter anchor.",
+      builtin: true,
+      fieldDefinitions: [
+        field("region", "Region", "text"),
+        field("importance", "Importance", "number"),
+        field("questHook", "Quest Hook", "textarea"),
+      ],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+    {
+      id: createId(),
+      workspaceId,
+      typeKey: "shrine",
+      displayName: "Shrine",
+      icon: "sparkles",
+      color: "#f7c36d",
+      description: "A sacred site tied to faith, rites, and divine events.",
+      builtin: true,
+      fieldDefinitions: [
+        field("deity", "Deity", "text"),
+        field("ritual", "Ritual", "textarea"),
+        field("blessing", "Blessing", "textarea"),
+      ],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+    {
+      id: createId(),
+      workspaceId,
+      typeKey: "store",
+      displayName: "Store",
+      icon: "store",
+      color: "#f2a6a6",
+      description: "A merchant location with stock, price adjustments, and attached NPCs.",
+      builtin: true,
+      fieldDefinitions: [
+        field("category", "Category", "text"),
+        field("owner", "Owner", "relation", false, [], "npc"),
+      ],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+    {
+      id: createId(),
+      workspaceId,
+      typeKey: "event",
+      displayName: "Event",
+      icon: "calendar-days",
+      color: "#c9a4ff",
+      description: "A scheduled moment in the campaign timeline.",
+      builtin: true,
+      fieldDefinitions: [
+        field("eventType", "Event Type", "select", true, ["Party", "Fight", "Trap", "Puzzle", "Festival", "Travel", "Dialogue"]),
+        field("impact", "Impact", "textarea"),
+      ],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+    {
+      id: createId(),
+      workspaceId,
+      typeKey: "item",
+      displayName: "Item",
+      icon: "backpack",
+      color: "#c2d38f",
+      description: "Reusable item database entry with worth and rarity.",
+      builtin: true,
+      fieldDefinitions: [
+        field("rarity", "Rarity", "select", false, ["Common", "Uncommon", "Rare", "Very Rare", "Legendary"]),
+        field("worth", "Worth", "number", true),
+      ],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+    {
+      id: createId(),
+      workspaceId,
+      typeKey: "quest",
+      displayName: "Quest",
+      icon: "scroll-text",
+      color: "#ffcf9b",
+      description: "Questline entry point or standalone quest node.",
+      builtin: true,
+      fieldDefinitions: [
+        field("rewardSummary", "Reward Summary", "textarea"),
+        field("stage", "Stage", "text"),
+      ],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+    {
+      id: createId(),
+      workspaceId,
+      typeKey: "note",
+      displayName: "Note",
+      icon: "book-open-text",
+      color: "#a0d5ff",
+      description: "Markdown note with backlinks and wiki links.",
+      builtin: true,
+      fieldDefinitions: [
+        field("summary", "Summary", "textarea"),
+      ],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+  ];
+}

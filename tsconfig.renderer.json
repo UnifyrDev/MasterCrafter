@@ -1,0 +1,23 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "jsx": "preserve",
+    "types": [
+      "node"
+    ],
+    "noEmit": true
+  },
+  "include": [
+    "src/renderer/**/*.ts",
+    "src/renderer/**/*.vue",
+    "src/shared/**/*.ts"
+  ]
+}
