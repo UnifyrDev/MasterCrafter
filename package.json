@@ -1,13 +1,22 @@
 {
   "name": "unifyr-mastercrafter",
-  "version": "1.0.0",
+  "version": "1.0.1a",
   "private": true,
   "type": "module",
   "description": "MasterCrafter, the Unifyr D&D campaign preparation desktop app.",
+  "homepage": "https://github.com/UnifyrDev/MasterCrafter",
+  "author": {
+    "name": "Vyxian",
+    "email": "bombavyxianwitch@gmail.com"
+  },
   "main": "dist/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "dist:win": "electron-vite build && electron-builder --win nsis",
+    "dist:linux": "electron-vite build && electron-builder --linux deb rpm",
+    "dist:linux:deb": "electron-vite build && electron-builder --linux deb",
+    "dist:linux:rpm": "electron-vite build && electron-builder --linux rpm",
     "dist": "electron-vite build && electron-builder",
     "typecheck": "vue-tsc --noEmit -p tsconfig.renderer.json && tsc -p tsconfig.node.json --noEmit",
     "postinstall": "node ./scripts/postinstall.js"
@@ -55,8 +64,10 @@
       ]
     },
     "linux": {
+      "maintainer": "Vyxian <bombavyxianwitch@gmail.com>",
       "target": [
-        "AppImage"
+        "deb",
+        "rpm"
       ]
     }
   }

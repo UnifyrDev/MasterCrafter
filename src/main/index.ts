@@ -1,9 +1,10 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, dialog } from "electron";
 import { spawnSync } from "node:child_process";
 import { CampaignService } from "@main/services/CampaignService";
 import { IpcController } from "@main/ipc/IpcController";
 import { hotkeyService } from "@main/services/HotkeyService";
 import { WindowService } from "@main/services/WindowService";
+import { APP_NAME } from "@shared/constants";
 
 let mainWindow: BrowserWindow | null = null;
 let campaignService: CampaignService | null = null;
@@ -40,7 +41,23 @@ async function bootstrap(): Promise<void> {
   windowService ??= WindowService.getInstance();
   ipcController ??= new IpcController(campaignService);
 
-  await campaignService.initialize();
+  const bootstrapResult = await campaignService.initialize();
+  if (bootstrapResult.createdWorkspace || bootstrapResult.repairedWorkspaceIds.length > 0) {
+    const bootstrapMessage = bootstrapResult.createdWorkspace
+      ? `An empty campaign database was created for ${bootstrapResult.createdWorkspace.name}.`
+      : `MasterCrafter recreated ${bootstrapResult.repairedWorkspaceIds.length} missing campaign database${bootstrapResult.repairedWorkspaceIds.length === 1 ? "" : "s"}.`;
+
+    await dialog.showMessageBox({
+      type: "info",
+      title: APP_NAME,
+      message: bootstrapMessage,
+      detail: "The app is setting up local campaign storage so the install starts with a usable empty database.",
+      buttons: ["Continue"],
+      defaultId: 0,
+      cancelId: 0,
+    });
+  }
+
   ipcController.register();
 
   const window = windowService.createMainWindow();

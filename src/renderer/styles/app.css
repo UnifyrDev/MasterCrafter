@@ -134,7 +134,24 @@ textarea {
 
 .scroll-shell {
   overflow: auto;
+  scrollbar-width: thin;
   scrollbar-color: rgba(119, 200, 255, 0.28) transparent;
+}
+
+.scroll-shell::-webkit-scrollbar {
+  width: 0.55rem;
+  height: 0.55rem;
+}
+
+.scroll-shell::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scroll-shell::-webkit-scrollbar-thumb {
+  background: rgba(119, 200, 255, 0.18);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
 }
 
 .section-title {

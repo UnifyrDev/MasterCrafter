@@ -77,11 +77,18 @@ export class CampaignService {
     return CampaignService.instance;
   }
 
-  async initialize(): Promise<void> {
+  async initialize(): Promise<StartupBootstrapResult> {
     await this.paths.ensureBaseStructure();
     await this.config.load();
     await this.registry.load();
-    await this.bootstrapMissingWorkspaceDatabases();
+
+    const createdWorkspace = await this.bootstrapInitialWorkspace();
+    const repairedWorkspaceIds = createdWorkspace ? [] : await this.bootstrapMissingWorkspaceDatabases();
+
+    return {
+      createdWorkspace,
+      repairedWorkspaceIds,
+    };
   }
 
   async listWorkspaces(): Promise<WorkspaceSummaryDto[]> {
@@ -460,7 +467,21 @@ export class CampaignService {
     return session.repository.backlinks(targetKey);
   }
 
-  private async bootstrapMissingWorkspaceDatabases(): Promise<void> {
+  private async bootstrapInitialWorkspace(): Promise<WorkspaceSummaryDto | null> {
+    const workspaces = await this.registry.list();
+    if (workspaces.length > 0) {
+      return null;
+    }
+
+    return this.createWorkspace({
+      name: "New Campaign",
+      description: "An empty campaign workspace created automatically on first launch.",
+    });
+  }
+
+  private async bootstrapMissingWorkspaceDatabases(): Promise<string[]> {
+    const repairedWorkspaceIds: string[] = [];
+
     for (const workspace of await this.registry.list()) {
       if (await this.fileExists(workspace.dbPath)) {
         await fs.mkdir(workspace.assetPath, { recursive: true });
@@ -469,7 +490,10 @@ export class CampaignService {
 
       const session = await this.openWorkspaceSession(workspace);
       session.close();
+      repairedWorkspaceIds.push(workspace.id);
     }
+
+    return repairedWorkspaceIds;
   }
 
   private async openWorkspaceSession(workspace: WorkspaceSummaryDto): Promise<WorkspaceSession> {
@@ -514,4 +538,9 @@ export class CampaignService {
     this.activeSession = await this.openWorkspaceSession(workspace);
     return this.activeSession;
   }
+}
+
+interface StartupBootstrapResult {
+  createdWorkspace: WorkspaceSummaryDto | null;
+  repairedWorkspaceIds: string[];
 }

@@ -18,6 +18,8 @@ test-results/
 .parcel-cache/
 .nyc_output/
 .eslintcache
+.electron-cache/
+.electron-builder-cache/
 
 # TypeScript incremental state
 *.tsbuildinfo

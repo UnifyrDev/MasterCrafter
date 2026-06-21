@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 
 const width = defineModel<number>("width", { required: true });
 const height = defineModel<number>("height", { required: true });
@@ -19,6 +19,91 @@ const props = withDefaults(
 
 const widthValue = computed(() => Math.round(Number(width.value ?? props.min)));
 const heightValue = computed(() => Math.round(Number(height.value ?? props.min)));
+const widthEditing = ref(false);
+const heightEditing = ref(false);
+const widthDraft = ref(String(widthValue.value));
+const heightDraft = ref(String(heightValue.value));
+const widthInputRef = ref<HTMLInputElement | null>(null);
+const heightInputRef = ref<HTMLInputElement | null>(null);
+
+watch(widthValue, (next) => {
+  if (!widthEditing.value) {
+    widthDraft.value = String(next);
+  }
+});
+
+watch(heightValue, (next) => {
+  if (!heightEditing.value) {
+    heightDraft.value = String(next);
+  }
+});
+
+function clampDimension(value: number): number {
+  return Math.min(props.max, Math.max(props.min, Math.round(value)));
+}
+
+function parseDraft(value: string, fallback: number): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return clampDimension(parsed);
+}
+
+async function beginEditing(field: "width" | "height"): Promise<void> {
+  if (field === "width") {
+    widthDraft.value = String(widthValue.value);
+    widthEditing.value = true;
+    await nextTick();
+    widthInputRef.value?.focus();
+    widthInputRef.value?.select();
+    return;
+  }
+
+  heightDraft.value = String(heightValue.value);
+  heightEditing.value = true;
+  await nextTick();
+  heightInputRef.value?.focus();
+  heightInputRef.value?.select();
+}
+
+function cancelEditing(field: "width" | "height"): void {
+  if (field === "width") {
+    widthEditing.value = false;
+    widthDraft.value = String(widthValue.value);
+    return;
+  }
+
+  heightEditing.value = false;
+  heightDraft.value = String(heightValue.value);
+}
+
+function commitEditing(field: "width" | "height"): void {
+  if (field === "width") {
+    width.value = parseDraft(widthDraft.value, widthValue.value);
+    widthEditing.value = false;
+    widthDraft.value = String(widthValue.value);
+    return;
+  }
+
+  height.value = parseDraft(heightDraft.value, heightValue.value);
+  heightEditing.value = false;
+  heightDraft.value = String(heightValue.value);
+}
+
+function handleKeydown(field: "width" | "height", event: KeyboardEvent): void {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    commitEditing(field);
+    return;
+  }
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    cancelEditing(field);
+  }
+}
 </script>
 
 <template>
@@ -26,7 +111,27 @@ const heightValue = computed(() => Math.round(Number(height.value ?? props.min))
     <label class="dimension-field">
       <span class="dimension-heading">
         <span class="field-label">Text Width</span>
-        <span class="dimension-value">{{ widthValue }}pt</span>
+        <button
+          v-if="!widthEditing"
+          type="button"
+          class="dimension-value dimension-value-button"
+          @click="beginEditing('width')"
+        >
+          {{ widthValue }}pt
+        </button>
+        <input
+          v-else
+          ref="widthInputRef"
+          v-model="widthDraft"
+          class="dimension-value dimension-value-input"
+          type="number"
+          inputmode="numeric"
+          :min="props.min"
+          :max="props.max"
+          :step="1"
+          @blur="commitEditing('width')"
+          @keydown="handleKeydown('width', $event)"
+        />
       </span>
       <input v-model.number="width" type="range" :min="props.min" :max="props.max" :step="props.step" />
     </label>
@@ -34,7 +139,27 @@ const heightValue = computed(() => Math.round(Number(height.value ?? props.min))
     <label class="dimension-field">
       <span class="dimension-heading">
         <span class="field-label">Text Height</span>
-        <span class="dimension-value">{{ heightValue }}pt</span>
+        <button
+          v-if="!heightEditing"
+          type="button"
+          class="dimension-value dimension-value-button"
+          @click="beginEditing('height')"
+        >
+          {{ heightValue }}pt
+        </button>
+        <input
+          v-else
+          ref="heightInputRef"
+          v-model="heightDraft"
+          class="dimension-value dimension-value-input"
+          type="number"
+          inputmode="numeric"
+          :min="props.min"
+          :max="props.max"
+          :step="1"
+          @blur="commitEditing('height')"
+          @keydown="handleKeydown('height', $event)"
+        />
       </span>
       <input v-model.number="height" type="range" :min="props.min" :max="props.max" :step="props.step" />
     </label>
@@ -69,6 +194,10 @@ const heightValue = computed(() => Math.round(Number(height.value ?? props.min))
 
 .dimension-value {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 4.2rem;
   padding: 0.08rem 0.34rem;
   border-radius: 999px;
   border: 1px solid rgba(130, 160, 190, 0.18);
@@ -76,6 +205,24 @@ const heightValue = computed(() => Math.round(Number(height.value ?? props.min))
   color: var(--fg);
   font-size: 0.64rem;
   line-height: 1.2;
+  box-sizing: border-box;
+}
+
+.dimension-value-button {
+  cursor: text;
+}
+
+.dimension-value-input {
+  font: inherit;
+  color: var(--fg);
+  text-align: right;
+  appearance: textfield;
+}
+
+.dimension-value-input::-webkit-outer-spin-button,
+.dimension-value-input::-webkit-inner-spin-button {
+  margin: 0;
+  appearance: none;
 }
 
 input[type="range"] {

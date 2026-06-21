@@ -48,6 +48,54 @@ export function averagePoint(points: MapGeometryPointDto[]): MapGeometryPointDto
   };
 }
 
+export function getPolylineLabelPoint(points: MapGeometryPointDto[]): MapGeometryPointDto | null {
+  if (!points.length) {
+    return null;
+  }
+
+  if (points.length === 1) {
+    return { ...points[0] };
+  }
+
+  let totalLength = 0;
+  const segmentLengths: number[] = [];
+
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const start = points[index];
+    const end = points[index + 1];
+    const segmentLength = Math.hypot(end.x - start.x, end.y - start.y);
+    segmentLengths.push(segmentLength);
+    totalLength += segmentLength;
+  }
+
+  if (totalLength <= 1e-8) {
+    return averagePoint(points);
+  }
+
+  let targetLength = totalLength / 2;
+  for (let index = 0; index < segmentLengths.length; index += 1) {
+    const segmentLength = segmentLengths[index];
+    if (segmentLength <= 1e-8) {
+      continue;
+    }
+
+    if (targetLength <= segmentLength) {
+      const start = points[index];
+      const end = points[index + 1];
+      const ratio = targetLength / segmentLength;
+
+      return {
+        x: start.x + (end.x - start.x) * ratio,
+        y: start.y + (end.y - start.y) * ratio,
+      };
+    }
+
+    targetLength -= segmentLength;
+  }
+
+  return { ...points[points.length - 1] };
+}
+
 export function calculatePolygonBounds(points: MapGeometryPointDto[]): { minX: number; minY: number; maxX: number; maxY: number } | null {
   if (!points.length) {
     return null;

@@ -3,11 +3,13 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { useMasterCrafter } from "@renderer/composables/useMasterCrafter";
 import { clamp } from "@shared/utils";
 import type { MapDto, MapGeometryPointDto, MapPlacementDto, MapPlacementGeometryDto, MapPlacementInputDto, MapInputDto } from "@shared/contracts";
-import { calculatePolygonBounds, getPolygonLabelPoint } from "@renderer/utils/mapGeometry";
+import { calculatePolygonBounds, getPolygonLabelPoint, getPolylineLabelPoint } from "@renderer/utils/mapGeometry";
 import MapDetailsEditor from "@renderer/components/MapDetailsEditor.vue";
+import PlacementLineWidthControl from "@renderer/components/map/PlacementLineWidthControl.vue";
 import PlacementTextDimensionsControl from "@renderer/components/map/PlacementTextDimensionsControl.vue";
 import PlacementTextOffsetControl from "@renderer/components/map/PlacementTextOffsetControl.vue";
 import { MapViewportStateService, type MapViewportState } from "@renderer/services/MapViewportStateService";
+import { confirmationDialogService } from "@renderer/services/ConfirmationDialogService";
 import { useAssetImageSource } from "@renderer/composables/useAssetImageSource";
 import { hotkeyDispatcherService } from "@renderer/services/hotkeys";
 import { mapEditorHistoryService } from "@renderer/services/mapEditor";
@@ -26,6 +28,21 @@ type PlacementSegment = {
   end: MapGeometryPointDto;
   insertIndex: number;
 };
+type PlacementDraftSnapshot = {
+  label: string;
+  notes: string;
+  color: string;
+  glowColor: string;
+  shadowColor: string;
+  scale: number;
+  fontColor: string;
+  lineWidth: number;
+  textWidth: number;
+  textHeight: number;
+  textOffsetX: number;
+  textOffsetY: number;
+  entityId: string;
+};
 
 const form = reactive({
   title: "Untitled Map",
@@ -41,12 +58,17 @@ const placementDraft = reactive({
   shadowColor: "#000000",
   scale: 1,
   fontColor: "#ffffff",
+  lineWidth: 0.6,
   textWidth: 48,
   textHeight: 48,
   textOffsetX: 0,
   textOffsetY: 0,
   entityId: "",
 });
+const placementAutosaveTimers = new Map<string, number>();
+const placementAutosaveSnapshots = new Map<string, { placement: MapPlacementInputDto; draft: PlacementDraftSnapshot }>();
+const isHydratingPlacementDraft = ref(false);
+let placementDraftHydrationEpoch = 0;
 
 const activePanel = ref<MapPanelState>(null);
 const placementTool = ref<PlacementTool>("select");
@@ -92,6 +114,10 @@ const shapeDraft = reactive({
 const MIN_ZOOM = Number.MIN_VALUE;
 const MAX_ZOOM = 2.5;
 const ZOOM_STEP = 1.12;
+const PATH_LINE_WIDTH_SCALE = 80;
+const MIN_PATH_LINE_THICKNESS = 0.2;
+const MAX_PATH_LINE_THICKNESS = 6;
+const DEFAULT_PATH_LINE_THICKNESS = 0.6;
 
 const snapshot = computed(() => state.value.snapshot);
 const selectedMap = computed(() => snapshot.value?.maps.find((map) => map.id === state.value.selectedMapId) ?? null);
@@ -115,13 +141,20 @@ const placementPreviews = computed<MapPlacementDto[]>(() => {
     }
 
     const isRegionPlacement = placement.kind === "region";
-    const previewTextWidth = isRegionPlacement ? normalizePlacementDimension(placementDraft.textWidth, placement.textWidth) : placement.textWidth;
-    const previewTextHeight = isRegionPlacement ? normalizePlacementDimension(placementDraft.textHeight, placement.textHeight) : placement.textHeight;
+    const isPathPlacement = placement.kind === "path";
+    const isLabelPlacement = isRegionPlacement || isPathPlacement;
+    const previewTextWidth = isLabelPlacement ? normalizePlacementDimension(placementDraft.textWidth, placement.textWidth) : placement.textWidth;
+    const previewTextHeight = isLabelPlacement ? normalizePlacementDimension(placementDraft.textHeight, placement.textHeight) : placement.textHeight;
     const previewTextOffsetX = isRegionPlacement ? normalizePlacementOffset(placementDraft.textOffsetX, placement.textOffsetX) : placement.textOffsetX;
     const previewTextOffsetY = isRegionPlacement ? normalizePlacementOffset(placementDraft.textOffsetY, placement.textOffsetY) : placement.textOffsetY;
+    const previewGeometryWidth = isPathPlacement ? pathLineThicknessToGeometryWidth(placementDraft.lineWidth, placement.geometry.width) : placement.geometry.width;
 
     return {
       ...placement,
+      geometry: {
+        ...placement.geometry,
+        width: previewGeometryWidth,
+      },
       label: placementDraft.label.trim() || placement.label,
       entityId: placementDraft.entityId || null,
       notes: placementDraft.notes,
@@ -137,6 +170,7 @@ const placementPreviews = computed<MapPlacementDto[]>(() => {
     };
   });
 });
+const placementPointPreviews = computed(() => placementPreviews.value.filter((placement) => placement.kind === "point"));
 const placementRegionLabelPositions = computed<Record<string, MapGeometryPointDto>>(() => {
   const labelPositions: Record<string, MapGeometryPointDto> = {};
 
@@ -196,6 +230,56 @@ const placementRegionLabelFontSizes = computed<Record<string, number>>(() => {
 
   return fontSizes;
 });
+const placementPathLabelPositions = computed<Record<string, MapGeometryPointDto>>(() => {
+  const labelPositions: Record<string, MapGeometryPointDto> = {};
+
+  for (const placement of placementPreviews.value) {
+    if (placement.kind !== "path") {
+      continue;
+    }
+
+    const points = getPlacementGeometryPoints(placement);
+    if (points.length < 2) {
+      continue;
+    }
+
+    const labelPoint = getPolylineLabelPoint(points);
+    if (labelPoint) {
+      labelPositions[placement.id] = labelPoint;
+    }
+  }
+
+  return labelPositions;
+});
+const placementPathLabelFrames = computed<Record<string, { width: number; height: number }>>(() => {
+  const frames: Record<string, { width: number; height: number }> = {};
+
+  for (const placement of placementPreviews.value) {
+    if (placement.kind !== "path") {
+      continue;
+    }
+
+    const width = clamp(normalizePlacementDimension(placement.textWidth, 48) / 10, 0.2, 90);
+    const height = clamp(normalizePlacementDimension(placement.textHeight, 48) / 10, 0.2, 90);
+
+    frames[placement.id] = { width, height };
+  }
+
+  return frames;
+});
+const placementPathLabelFontSizes = computed<Record<string, number>>(() => {
+  const fontSizes: Record<string, number> = {};
+
+  for (const placement of placementPreviews.value) {
+    if (placement.kind !== "path") {
+      continue;
+    }
+
+    fontSizes[placement.id] = clamp(normalizePlacementDimension(placement.textHeight, 48) / 10, 0.2, 90);
+  }
+
+  return fontSizes;
+});
 const placementSegmentsById = computed<Record<string, PlacementSegment[]>>(() => {
   const segmentMap: Record<string, PlacementSegment[]> = {};
 
@@ -219,6 +303,9 @@ const isPointPlacementDraft = computed(() =>
 );
 const isRegionPlacementDraft = computed(() =>
   Boolean(placementTool.value === "region" || placementDraft.kind === "region" || selectedPlacement.value?.kind === "region"),
+);
+const isPathPlacementDraft = computed(() =>
+  Boolean(placementTool.value === "path" || placementDraft.kind === "path" || selectedPlacement.value?.kind === "path"),
 );
 const placementToolLabel = computed(() => {
   switch (placementTool.value) {
@@ -469,6 +556,18 @@ watch(
 );
 
 watch(
+  placementDraft,
+  () => {
+    if (isHydratingPlacementDraft.value || !selectedPlacement.value) {
+      return;
+    }
+
+    schedulePlacementAutosave();
+  },
+  { deep: true },
+);
+
+watch(
   () => [mapViewport.scale, mapViewport.translateX, mapViewport.translateY, selectedPlacement.value?.id, selectedMap.value?.id],
   async () => {
     await nextTick();
@@ -547,6 +646,9 @@ onMounted(() => {
 onBeforeUnmount(() => {
   unregisterHotkeys?.();
   unregisterHotkeys = null;
+  void flushAllPlacementAutosaves().catch((error) => {
+    console.error("Failed to flush placement autosaves.", error);
+  });
   persistViewportState();
   mapCanvasObserver?.disconnect();
   mapCanvasObserver = null;
@@ -597,6 +699,9 @@ function selectPlacement(placementId: string): void {
 }
 
 function syncPlacementDraftFromPlacement(placement: MapPlacementDto): void {
+  placementDraftHydrationEpoch += 1;
+  const hydrationEpoch = placementDraftHydrationEpoch;
+  isHydratingPlacementDraft.value = true;
   placementDraft.label = placement.label;
   placementDraft.kind = placement.kind;
   placementDraft.notes = placement.notes;
@@ -605,11 +710,18 @@ function syncPlacementDraftFromPlacement(placement: MapPlacementDto): void {
   placementDraft.shadowColor = placement.shadowColor;
   placementDraft.scale = placement.scale;
   placementDraft.fontColor = placement.fontColor;
+  placementDraft.lineWidth = geometryWidthToPathLineThickness(placement.geometry.width, DEFAULT_PATH_LINE_THICKNESS);
   placementDraft.textWidth = placement.textWidth;
   placementDraft.textHeight = placement.textHeight;
   placementDraft.textOffsetX = placement.textOffsetX;
   placementDraft.textOffsetY = placement.textOffsetY;
   placementDraft.entityId = placement.entityId ?? "";
+
+  void nextTick().then(() => {
+    if (placementDraftHydrationEpoch === hydrationEpoch) {
+      isHydratingPlacementDraft.value = false;
+    }
+  });
 }
 
 function placementAnchorPoint(placement: MapPlacementDto): MapGeometryPointDto | null {
@@ -620,6 +732,10 @@ function placementAnchorPoint(placement: MapPlacementDto): MapGeometryPointDto |
   const points = placement.geometry.points;
   if (!points.length) {
     return placement.geometry.point ? { ...placement.geometry.point } : null;
+  }
+
+  if (placement.kind === "path") {
+    return getPolylineLabelPoint(points) ?? placement.geometry.point ?? { x: 0, y: 0 };
   }
 
   const sum = points.reduce(
@@ -648,7 +764,7 @@ function clampGeometryPoint(point: MapGeometryPointDto): MapGeometryPointDto {
 }
 
 function clonePlacementGeometryForSave(
-  placement: MapPlacementDto,
+  placement: { geometry: MapPlacementGeometryDto },
   overrides: {
     point?: MapGeometryPointDto | null;
     points?: MapGeometryPointDto[];
@@ -691,6 +807,123 @@ function placementSnapshotToInput(placement: MapPlacementDto): MapPlacementInput
     fontColor: placement.fontColor,
     zIndex: placement.zIndex,
   };
+}
+
+function capturePlacementDraftSnapshot(): PlacementDraftSnapshot {
+  return {
+    label: placementDraft.label,
+    notes: placementDraft.notes,
+    color: placementDraft.color,
+    glowColor: placementDraft.glowColor,
+    shadowColor: placementDraft.shadowColor,
+    scale: placementDraft.scale,
+    fontColor: placementDraft.fontColor,
+    lineWidth: placementDraft.lineWidth,
+    textWidth: placementDraft.textWidth,
+    textHeight: placementDraft.textHeight,
+    textOffsetX: placementDraft.textOffsetX,
+    textOffsetY: placementDraft.textOffsetY,
+    entityId: placementDraft.entityId,
+  };
+}
+
+function buildPlacementSaveInput(
+  placement: MapPlacementInputDto,
+  draft: PlacementDraftSnapshot,
+): MapPlacementInputDto {
+  const isRegionPlacement = placement.kind === "region";
+  const isPathPlacement = placement.kind === "path";
+  const isLabelPlacement = isRegionPlacement || isPathPlacement;
+
+  return {
+    ...placement,
+    entityId: draft.entityId || null,
+    label: draft.label.trim() || placement.label || "Marker",
+    geometry: clonePlacementGeometryForSave(
+      placement,
+      isPathPlacement ? { width: pathLineThicknessToGeometryWidth(draft.lineWidth, placement.geometry.width) } : {},
+    ),
+    textWidth: isLabelPlacement ? normalizePlacementDimension(draft.textWidth, placement.textWidth) : placement.textWidth,
+    textHeight: isLabelPlacement ? normalizePlacementDimension(draft.textHeight, placement.textHeight) : placement.textHeight,
+    textOffsetX: isRegionPlacement ? normalizePlacementOffset(draft.textOffsetX, placement.textOffsetX) : placement.textOffsetX,
+    textOffsetY: isRegionPlacement ? normalizePlacementOffset(draft.textOffsetY, placement.textOffsetY) : placement.textOffsetY,
+    notes: draft.notes,
+    color: draft.color,
+    glowColor: draft.glowColor,
+    shadowColor: draft.shadowColor,
+    scale: draft.scale,
+    fontColor: draft.fontColor,
+  };
+}
+
+function clearPlacementAutosave(placementId: string): void {
+  const timerId = placementAutosaveTimers.get(placementId);
+  if (timerId !== undefined) {
+    window.clearTimeout(timerId);
+  }
+
+  placementAutosaveTimers.delete(placementId);
+  placementAutosaveSnapshots.delete(placementId);
+}
+
+function schedulePlacementAutosave(): void {
+  const placement = selectedPlacement.value;
+  if (!placement) {
+    return;
+  }
+
+  const placementId = placement.id;
+  const placementSnapshot = placementSnapshotToInput(placement);
+  const draftSnapshot = capturePlacementDraftSnapshot();
+  const existingTimer = placementAutosaveTimers.get(placementId);
+  if (existingTimer !== undefined) {
+    window.clearTimeout(existingTimer);
+  }
+
+  placementAutosaveSnapshots.set(placementId, {
+    placement: placementSnapshot,
+    draft: draftSnapshot,
+  });
+
+  placementAutosaveTimers.set(
+    placementId,
+    window.setTimeout(() => {
+      void flushPlacementAutosave(placementId).catch((error) => {
+        console.error("Failed to autosave placement edits.", error);
+      });
+    }, 250),
+  );
+}
+
+async function flushPlacementAutosave(placementId: string): Promise<void> {
+  const pending = placementAutosaveSnapshots.get(placementId);
+  if (!pending) {
+    return;
+  }
+
+  clearPlacementAutosave(placementId);
+  await persistPlacementDraft(pending.placement, pending.draft);
+}
+
+async function flushAllPlacementAutosaves(): Promise<void> {
+  for (const placementId of [...placementAutosaveSnapshots.keys()]) {
+    await flushPlacementAutosave(placementId);
+  }
+}
+
+async function persistPlacementDraft(
+  placementSnapshot: MapPlacementInputDto,
+  draft: PlacementDraftSnapshot,
+): Promise<MapPlacementDto> {
+  const saved = await window.masterCrafter.placements.save(buildPlacementSaveInput(placementSnapshot, draft));
+  const activeWorkspaceId = state.value.activeWorkspaceId;
+
+  if (activeWorkspaceId === placementSnapshot.workspaceId) {
+    await store.refreshSnapshot();
+  }
+
+  recordPlacementRestore(placementSnapshot);
+  return saved;
 }
 
 function mapSnapshotToInput(map: MapDto): MapInputDto {
@@ -955,6 +1188,32 @@ function placementAppearanceStyle(source: {
   };
 }
 
+function geometryWidthToPathLineThickness(width: number, fallback = DEFAULT_PATH_LINE_THICKNESS): number {
+  const numericWidth = Number(width);
+  if (!Number.isFinite(numericWidth) || numericWidth <= 0) {
+    return fallback;
+  }
+
+  return clamp(numericWidth / PATH_LINE_WIDTH_SCALE, MIN_PATH_LINE_THICKNESS, MAX_PATH_LINE_THICKNESS);
+}
+
+function pathLineThicknessToGeometryWidth(thickness: number, fallback = 48): number {
+  const numericThickness = Number(thickness);
+  if (!Number.isFinite(numericThickness) || numericThickness <= 0) {
+    return fallback;
+  }
+
+  return Math.max(1, Math.round(clamp(numericThickness, MIN_PATH_LINE_THICKNESS, MAX_PATH_LINE_THICKNESS) * PATH_LINE_WIDTH_SCALE));
+}
+
+function getPlacementLineStrokeWidth(placement: MapPlacementDto): number {
+  if (placement.kind !== "path") {
+    return 0.6;
+  }
+
+  return geometryWidthToPathLineThickness(placement.geometry.width, DEFAULT_PATH_LINE_THICKNESS);
+}
+
 function getPlacementRegionClipId(placementId: string): string {
   return `placement-region-clip-${placementId}`;
 }
@@ -1084,7 +1343,7 @@ function beginPan(event: PointerEvent): void {
   const target = event.target as HTMLElement | null;
   if (
     target?.closest(".map-bottom-toolbar, .map-drawer, .round-fab, .drawer-close, .tool-chip, .placement-popover") ||
-    (!isSpacePanActive.value && target?.closest(".marker-pin, .placement-handle, .placement-segment-hit, .placement-shape"))
+    (!isSpacePanActive.value && target?.closest(".marker-pin, .placement-handle, .placement-segment-hit, .placement-path-hit, .placement-shape"))
   ) {
     return;
   }
@@ -1165,6 +1424,9 @@ function buildPlacementInput(
   const normalizedPoints = points.map((entry) => ({ x: clamp(entry.x, 0, 1), y: clamp(entry.y, 0, 1) }));
   const fallbackLabel = kind === "point" ? "Marker" : kind === "region" ? "Area" : "Pen";
   const isRegion = kind === "region";
+  const isPath = kind === "path";
+  const isLabelPlacement = isRegion || isPath;
+  const geometryWidth = isPath ? pathLineThicknessToGeometryWidth(placementDraft.lineWidth, 48) : 48;
 
   return {
     workspaceId: workspace.id,
@@ -1177,11 +1439,11 @@ function buildPlacementInput(
       point: normalizedPoint,
       points: normalizedPoints,
       radius: 24,
-      width: 48,
+      width: geometryWidth,
       height: 48,
     },
-    textWidth: isRegion ? normalizePlacementDimension(placementDraft.textWidth, 48) : 48,
-    textHeight: isRegion ? normalizePlacementDimension(placementDraft.textHeight, 48) : 48,
+    textWidth: isLabelPlacement ? normalizePlacementDimension(placementDraft.textWidth, 48) : 48,
+    textHeight: isLabelPlacement ? normalizePlacementDimension(placementDraft.textHeight, 48) : 48,
     textOffsetX: isRegion ? normalizePlacementOffset(placementDraft.textOffsetX, 0) : 0,
     textOffsetY: isRegion ? normalizePlacementOffset(placementDraft.textOffsetY, 0) : 0,
     notes: placementDraft.notes.trim(),
@@ -1631,40 +1893,13 @@ function endPlacementPopoverDrag(event?: PointerEvent): void {
 }
 
 async function savePlacement(): Promise<void> {
-  const workspace = snapshot.value?.workspace;
   const placement = selectedPlacement.value;
-  const map = selectedMap.value;
-  if (!workspace || !placement || !map) {
+  if (!placement) {
     return;
   }
 
-  const isRegionPlacement = placement.kind === "region";
-  const geometry = clonePlacementGeometryForSave(placement);
   const previousPlacement = placementSnapshotToInput(placement);
-
-  const saved = await store.savePlacement({
-    workspaceId: workspace.id,
-    id: placement.id,
-    mapId: map.id,
-    entityId: placementDraft.entityId || null,
-    label: placementDraft.label.trim() || placement.label || "Marker",
-    kind: placement.kind,
-    geometry,
-    textWidth: isRegionPlacement ? normalizePlacementDimension(placementDraft.textWidth, placement.textWidth) : placement.textWidth,
-    textHeight: isRegionPlacement ? normalizePlacementDimension(placementDraft.textHeight, placement.textHeight) : placement.textHeight,
-    textOffsetX: isRegionPlacement ? normalizePlacementOffset(placementDraft.textOffsetX, placement.textOffsetX) : placement.textOffsetX,
-    textOffsetY: isRegionPlacement ? normalizePlacementOffset(placementDraft.textOffsetY, placement.textOffsetY) : placement.textOffsetY,
-    notes: placementDraft.notes,
-    color: placementDraft.color,
-    glowColor: placementDraft.glowColor,
-    shadowColor: placementDraft.shadowColor,
-    scale: placementDraft.scale,
-    fontColor: placementDraft.fontColor,
-    zIndex: placement.zIndex,
-  });
-
-  selectPlacement(saved.id);
-  recordPlacementRestore(previousPlacement);
+  await persistPlacementDraft(previousPlacement, capturePlacementDraftSnapshot());
 }
 
 function beginDrag(placementId: string, event: PointerEvent): void {
@@ -1793,10 +2028,23 @@ async function deletePlacement(placementId: string): Promise<void> {
   const workspace = state.value.snapshot?.workspace;
   const map = selectedMap.value;
   const placement = placements.value.find((entry) => entry.id === placementId) ?? null;
-  if (!workspace || !map) {
+  if (!workspace || !map || !placement) {
     return;
   }
 
+  const confirmed = await confirmationDialogService.requestConfirmation({
+    title: `Delete ${placement.label}?`,
+    message: `This will permanently remove the placement ${placement.label}.`,
+    confirmLabel: "Delete",
+    cancelLabel: "Cancel",
+    tone: "danger",
+  });
+
+  if (!confirmed) {
+    return;
+  }
+
+  clearPlacementAutosave(placementId);
   const wasSelectedPlacement = state.value.selectedPlacementId === placementId;
   await store.deletePlacement(workspace.id, map.id, placementId);
   if (placement) {
@@ -1957,7 +2205,7 @@ async function handlePlacementClick(event: MouseEvent): Promise<void> {
           <template v-if="placement.kind === 'region' && placementRegionLabelPositions[placement.id]">
             <g
               :transform="`translate(${placementRegionLabelPositions[placement.id].x * 100}, ${placementRegionLabelPositions[placement.id].y * 100})`"
-              :style="placementAppearanceStyle(placement)"
+              :style="{ ...placementAppearanceStyle(placement), pointerEvents: 'none' }"
             >
               <g :clip-path="`url(#${getPlacementRegionClipId(placement.id)})`">
                 <rect
@@ -1986,18 +2234,49 @@ async function handlePlacementClick(event: MouseEvent): Promise<void> {
             </g>
           </template>
           <polyline
-            v-else-if="placement.kind === 'path' && placement.geometry.points.length"
-            class="placement-shape"
+            v-if="placement.kind === 'path' && placement.geometry.points.length"
+            class="placement-path-hit"
             :points="getPlacementGeometryPoints(placement).map((point) => `${point.x * 100},${point.y * 100}`).join(' ')"
             fill="none"
-            :stroke="placement.color"
-            stroke-width="0.6"
+            stroke="rgba(0, 0, 0, 0.001)"
+            :stroke-width="Math.max(getPlacementLineStrokeWidth(placement) + 1.8, 2.4)"
             stroke-linecap="round"
             stroke-linejoin="round"
             vector-effect="non-scaling-stroke"
             @pointerdown="handlePlacementShapePointerDown(placement.id, $event as PointerEvent, 'shape')"
             @click.stop="placementTool === 'select' ? handlePlacementSelectClick(placement.id) : undefined"
           />
+          <polyline
+            v-if="placement.kind === 'path' && placement.geometry.points.length"
+            class="placement-shape"
+            :points="getPlacementGeometryPoints(placement).map((point) => `${point.x * 100},${point.y * 100}`).join(' ')"
+            fill="none"
+            :stroke="placement.color"
+            :stroke-width="getPlacementLineStrokeWidth(placement)"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            vector-effect="non-scaling-stroke"
+            pointer-events="none"
+          />
+          <template v-if="placement.kind === 'path' && placementPathLabelPositions[placement.id]">
+            <g
+              :transform="`translate(${placementPathLabelPositions[placement.id].x * 100}, ${placementPathLabelPositions[placement.id].y * 100})`"
+              :style="{ ...placementAppearanceStyle(placement), pointerEvents: 'none' }"
+            >
+              <text
+                class="placement-region-label-text-svg"
+                :x="0"
+                :y="0"
+                :font-size="placementPathLabelFontSizes[placement.id] ?? 3"
+                text-anchor="middle"
+                dominant-baseline="middle"
+                :textLength="Math.max((placementPathLabelFrames[placement.id]?.width ?? 0) * 0.9, 0)"
+                lengthAdjust="spacingAndGlyphs"
+              >
+                {{ placement.label }}
+              </text>
+            </g>
+          </template>
         </template>
 
         <polygon
@@ -2013,7 +2292,7 @@ async function handlePlacementClick(event: MouseEvent): Promise<void> {
           :points="[...shapeDraft.points, ...(shapeDraft.cursor ? [shapeDraft.cursor] : [])].map((point) => `${point.x * 100},${point.y * 100}`).join(' ')"
           fill="none"
           stroke="rgba(111, 244, 201, 0.92)"
-          stroke-width="0.6"
+          :stroke-width="placementDraft.lineWidth"
           stroke-linecap="round"
           stroke-linejoin="round"
           vector-effect="non-scaling-stroke"
@@ -2088,7 +2367,7 @@ async function handlePlacementClick(event: MouseEvent): Promise<void> {
       </div>
 
       <button
-        v-for="placement in placementPreviews"
+        v-for="placement in placementPointPreviews"
         :key="placement.id"
         type="button"
         class="marker-pin"
@@ -2124,7 +2403,7 @@ async function handlePlacementClick(event: MouseEvent): Promise<void> {
         <Transition name="placement-popover">
           <section
             ref="placementPopoverRef"
-            class="placement-popover glass-panel"
+            class="placement-popover glass-panel scroll-shell"
             :class="{ dragging: placementPopoverDragState.active }"
             :style="{
               '--placement-popover-drag-x': `${placementPopoverDragOffset.x}px`,
@@ -2155,7 +2434,7 @@ async function handlePlacementClick(event: MouseEvent): Promise<void> {
                 </select>
               </label>
               <PlacementTextDimensionsControl
-                v-if="selectedPlacement?.kind === 'region'"
+                v-if="selectedPlacement?.kind === 'region' || selectedPlacement?.kind === 'path'"
                 v-model:width="placementDraft.textWidth"
                 v-model:height="placementDraft.textHeight"
               />
@@ -2164,6 +2443,7 @@ async function handlePlacementClick(event: MouseEvent): Promise<void> {
                 v-model:offsetX="placementDraft.textOffsetX"
                 v-model:offsetY="placementDraft.textOffsetY"
               />
+              <PlacementLineWidthControl v-if="selectedPlacement?.kind === 'path'" v-model:thickness="placementDraft.lineWidth" />
               <label>
                 <span class="field-label">Color</span>
                 <input v-model="placementDraft.color" type="color" />
@@ -2180,7 +2460,7 @@ async function handlePlacementClick(event: MouseEvent): Promise<void> {
                 <span class="field-label">Scale {{ placementScaleLabel }}</span>
                 <input v-model.number="placementDraft.scale" type="range" min="0.5" max="4" step="0.1" />
               </label>
-              <label v-if="selectedPlacement?.kind === 'point' || selectedPlacement?.kind === 'region'">
+              <label v-if="selectedPlacement?.kind === 'point' || selectedPlacement?.kind === 'region' || selectedPlacement?.kind === 'path'">
                 <span class="field-label">Font Color</span>
                 <input v-model="placementDraft.fontColor" type="color" />
               </label>
@@ -2191,8 +2471,7 @@ async function handlePlacementClick(event: MouseEvent): Promise<void> {
             </div>
 
             <div class="placement-popover-actions">
-              <button type="button" @click="savePlacement()">Save</button>
-              <button type="button" class="danger" @click="deleteSelectedPlacement()">Delete</button>
+              <button type="button" class="danger placement-delete-button" @click="deleteSelectedPlacement()">Delete</button>
             </div>
           </section>
         </Transition>
@@ -2216,7 +2495,7 @@ async function handlePlacementClick(event: MouseEvent): Promise<void> {
         </div>
 
         <transition name="drawer-swoop">
-          <aside v-if="activePanel === 'maps'" class="map-drawer map-drawer-left glass-panel">
+          <aside v-if="activePanel === 'maps'" class="map-drawer map-drawer-left glass-panel scroll-shell">
             <div class="drawer-section drawer-header">
               <p class="section-title">Maps</p>
               <button type="button" class="drawer-close" title="Close maps panel" @click="closePanel()">×</button>
@@ -2249,7 +2528,7 @@ async function handlePlacementClick(event: MouseEvent): Promise<void> {
         </transition>
 
         <transition name="drawer-swoop">
-          <aside v-if="activePanel === 'placement'" class="map-drawer map-drawer-left glass-panel">
+          <aside v-if="activePanel === 'placement'" class="map-drawer map-drawer-left glass-panel scroll-shell">
             <div class="drawer-section drawer-header">
               <p class="section-title">Placement Draft</p>
               <button type="button" class="drawer-close" title="Close placement panel" @click="closePanel()">×</button>
@@ -2284,7 +2563,7 @@ async function handlePlacementClick(event: MouseEvent): Promise<void> {
                   <input v-model.number="placementDraft.scale" type="range" min="0.5" max="4" step="0.1" />
                 </label>
                 <PlacementTextDimensionsControl
-                  v-if="isRegionPlacementDraft"
+                  v-if="isRegionPlacementDraft || isPathPlacementDraft"
                   v-model:width="placementDraft.textWidth"
                   v-model:height="placementDraft.textHeight"
                 />
@@ -2293,7 +2572,8 @@ async function handlePlacementClick(event: MouseEvent): Promise<void> {
                   v-model:offsetX="placementDraft.textOffsetX"
                   v-model:offsetY="placementDraft.textOffsetY"
                 />
-                <label v-if="isPointPlacementDraft || isRegionPlacementDraft">
+                <PlacementLineWidthControl v-if="isPathPlacementDraft" v-model:thickness="placementDraft.lineWidth" />
+                <label v-if="isPointPlacementDraft || isRegionPlacementDraft || isPathPlacementDraft">
                   <span>Font Color</span>
                   <input v-model="placementDraft.fontColor" type="color" />
                 </label>
@@ -2336,7 +2616,7 @@ async function handlePlacementClick(event: MouseEvent): Promise<void> {
         </transition>
 
         <transition name="drawer-swoop">
-          <aside v-if="activePanel === 'tools'" class="map-drawer map-drawer-left glass-panel">
+          <aside v-if="activePanel === 'tools'" class="map-drawer map-drawer-left glass-panel scroll-shell">
             <div class="drawer-section drawer-header">
               <p class="section-title">Tools</p>
               <button type="button" class="drawer-close" title="Close tools panel" @click="closePanel()">×</button>
@@ -2365,7 +2645,7 @@ async function handlePlacementClick(event: MouseEvent): Promise<void> {
         </transition>
 
         <transition name="drawer-swoop">
-          <aside v-if="activePanel === 'inspector'" class="map-drawer map-drawer-right glass-panel">
+          <aside v-if="activePanel === 'inspector'" class="map-drawer map-drawer-right glass-panel scroll-shell">
             <template v-if="selectedPlacement">
               <div class="drawer-section drawer-header">
                 <p class="section-title">Inspector</p>
@@ -2379,7 +2659,7 @@ async function handlePlacementClick(event: MouseEvent): Promise<void> {
               <div class="drawer-section">
                 <div class="tool-stack">
                   <button type="button" @click="selectMapFromPlacement()">Go To Map</button>
-                  <button type="button" class="danger" @click="deleteSelectedPlacement()">Delete</button>
+                  <button type="button" class="danger placement-delete-button" @click="deleteSelectedPlacement()">Delete</button>
                 </div>
               </div>
 
@@ -2914,6 +3194,15 @@ async function handlePlacementClick(event: MouseEvent): Promise<void> {
   stroke: rgba(111, 244, 201, 0.14);
 }
 
+.placement-path-hit {
+  fill: none;
+  stroke: rgba(0, 0, 0, 0.001);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  pointer-events: stroke;
+}
+
 .placement-popover-anchor {
   position: absolute;
   z-index: 45;
@@ -3010,6 +3299,22 @@ async function handlePlacementClick(event: MouseEvent): Promise<void> {
   justify-content: flex-end;
   gap: 0.12rem;
   flex-wrap: wrap;
+}
+
+.placement-delete-button {
+  flex: 1 1 8rem;
+  min-width: 8rem;
+  background: rgba(235, 97, 97, 0.2);
+  border: 1px solid rgba(235, 97, 97, 0.34);
+  color: #fff;
+}
+
+.placement-delete-button:hover {
+  background: rgba(235, 97, 97, 0.3);
+}
+
+.placement-popover-actions .placement-delete-button {
+  width: 100%;
 }
 
 .empty-map {
