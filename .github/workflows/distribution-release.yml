@@ -1,0 +1,160 @@
+name: Distribution Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: distribution-release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ELECTRON_CACHE: ${{ github.workspace }}/.electron-cache
+  ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/.electron-builder-cache
+
+jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+  prepare-version:
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      displayVersion: ${{ steps.version.outputs.displayVersion }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Read version metadata
+        id: version
+        run: node ./scripts/packaging/version-info.mjs
+
+      - name: Validate tag version
+        if: github.event_name == 'push'
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+          EXPECTED_TAG: v${{ steps.version.outputs.displayVersion }}
+        run: |
+          if [ "$TAG_NAME" != "$EXPECTED_TAG" ]; then
+            echo "Tag $TAG_NAME does not match expected $EXPECTED_TAG"
+            exit 1
+          fi
+
+  build-windows:
+    needs:
+      - validate
+      - prepare-version
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Windows installer
+        run: npm run dist:win
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-${{ needs.prepare-version.outputs.displayVersion }}
+          path: release/*
+          if-no-files-found: error
+          retention-days: 14
+
+  build-linux:
+    needs:
+      - validate
+      - prepare-version
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Linux packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fakeroot rpm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Debian and Fedora packages
+        run: npm run dist:linux
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages-${{ needs.prepare-version.outputs.displayVersion }}
+          path: release/*
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    needs:
+      - prepare-version
+      - build-windows
+      - build-linux
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-installer-${{ needs.prepare-version.outputs.displayVersion }}
+          path: release-artifacts/windows
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-packages-${{ needs.prepare-version.outputs.displayVersion }}
+          path: release-artifacts/linux
+
+      - name: Publish GitHub prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          name: MasterCrafter v${{ needs.prepare-version.outputs.displayVersion }}
+          files: |
+            release-artifacts/windows/**/*
+            release-artifacts/linux/**/*
+          generate_release_notes: true
+          prerelease: true
+          draft: false
