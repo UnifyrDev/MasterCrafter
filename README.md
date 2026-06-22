@@ -46,7 +46,7 @@ This is the Timeline Editor, Do you have quests you have made and those are set 
 
 ## Getting Started
 
-1. Install a recent version of Node.js and npm.
+1. Install Node.js 24.x and npm.
 2. Install dependencies:
 
    ```bash
