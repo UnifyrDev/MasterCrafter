@@ -135,6 +135,23 @@ jobs:
       - build-linux
     runs-on: ubuntu-22.04
     steps:
+      - name: Resolve release metadata
+        id: release
+        shell: bash
+        env:
+          PACKAGE_VERSION: ${{ needs.prepare-version.outputs.version }}
+          DISPLAY_VERSION: ${{ needs.prepare-version.outputs.displayVersion }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            echo "tag_name=v${PACKAGE_VERSION}" >> "$GITHUB_OUTPUT"
+            echo "release_name=MasterCrafter v${DISPLAY_VERSION}" >> "$GITHUB_OUTPUT"
+            echo "overwrite_files=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag_name=v${PACKAGE_VERSION}-rc.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+            echo "release_name=MasterCrafter RC v${DISPLAY_VERSION}" >> "$GITHUB_OUTPUT"
+            echo "overwrite_files=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Download Windows artifacts
         uses: actions/download-artifact@v4
         with:
@@ -150,10 +167,10 @@ jobs:
       - name: Publish GitHub prerelease
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.prepare-version.outputs.version }}
+          tag_name: ${{ steps.release.outputs.tag_name }}
           target_commitish: ${{ github.sha }}
-          name: MasterCrafter v${{ needs.prepare-version.outputs.displayVersion }}
-          overwrite_files: true
+          name: ${{ steps.release.outputs.release_name }}
+          overwrite_files: ${{ steps.release.outputs.overwrite_files }}
           preserve_order: true
           files: |
             release-artifacts/windows/**/*
