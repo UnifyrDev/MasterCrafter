@@ -53,6 +53,7 @@ import type {
   TimelineEventInputDto,
   UpdateCalendarInputDto,
   UpdateWorkspaceMetadataInputDto,
+  WorkspaceAssetDto,
   WorkspaceSummaryDto,
 } from "@shared/contracts";
 import { createId, nowIso, slugify } from "@shared/utils";
@@ -259,6 +260,19 @@ export class CampaignService {
 
     session.repository.saveAssetRecord(asset);
     return session.repository.importImage(input, asset);
+  }
+
+  async importAsset(workspaceId: string, sourceFilePath: string, kind: string): Promise<WorkspaceAssetDto> {
+    const session = await this.ensureWorkspaceSession(workspaceId);
+    const asset = await this.vault.importAsset({
+      workspaceId,
+      assetRoot: session.summary.assetPath,
+      sourceFilePath,
+      kind,
+    });
+
+    session.repository.saveAssetRecord(asset);
+    return asset;
   }
 
   async deleteMap(workspaceId: string, mapId: string): Promise<void> {

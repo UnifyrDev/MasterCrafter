@@ -14,6 +14,10 @@ import { npcEditorService } from "@renderer/services/NpcEditorService";
 import { hotkeyDispatcherService } from "@renderer/services/hotkeys";
 import { getCalendarCycleLabel } from "@renderer/utils/calendar";
 
+const props = defineProps<{
+  appVersion: string | null;
+}>();
+
 const store = useMasterCrafter();
 const state = store.state;
 
@@ -546,7 +550,10 @@ onBeforeUnmount(() => {
     <main class="workspace glass-panel">
       <header class="workspace-header">
         <div class="title-group">
-          <p class="section-title">Workspace</p>
+          <div class="section-title-row">
+            <p class="section-title">Workspace</p>
+            <span v-if="props.appVersion" class="chip">v{{ props.appVersion }}</span>
+          </div>
           <div class="metadata-row">
             <input v-model="workspaceForm.name" type="text" class="workspace-name" />
             <input v-model="workspaceForm.description" type="text" class="workspace-description" />
@@ -806,6 +813,17 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   align-items: end;
   gap: 0.18rem;
+}
+
+.section-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.45rem;
+}
+
+.section-title-row .section-title {
+  margin: 0;
 }
 
 .metadata-row {

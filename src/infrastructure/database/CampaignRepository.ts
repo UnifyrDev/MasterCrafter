@@ -660,6 +660,7 @@ export class CampaignRepository {
   deleteMap(mapId: string): void {
     const transaction = this.database.transaction(() => {
       this.database.prepare("DELETE FROM map_placements WHERE workspace_id = ? AND map_id = ?").run(this.workspaceId, mapId);
+      this.database.prepare("DELETE FROM content_links WHERE workspace_id = ? AND target_type = 'map' AND target_id = ?").run(this.workspaceId, mapId);
       this.database.prepare("DELETE FROM maps WHERE workspace_id = ? AND id = ?").run(this.workspaceId, mapId);
       this.deleteSearchIndex("map", mapId);
     });
@@ -2477,6 +2478,58 @@ export class CampaignRepository {
     }
   }
 
+  private syncExplicitEntityLink(sourceType: string, sourceId: string, entityId: string | null): void {
+    this.database
+      .prepare("DELETE FROM content_links WHERE workspace_id = ? AND source_type = ? AND source_id = ? AND target_type = 'entity'")
+      .run(this.workspaceId, sourceType, sourceId);
+
+    if (!entityId) {
+      return;
+    }
+
+    const entity = this.database
+      .prepare("SELECT id, title, slug FROM entities WHERE workspace_id = ? AND id = ?")
+      .get(this.workspaceId, entityId) as { id?: string; title?: string; slug?: string } | undefined;
+
+    if (!entity) {
+      return;
+    }
+
+    this.database
+      .prepare(
+        `INSERT INTO content_links
+         (id, workspace_id, source_type, source_id, target_key, target_type, target_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'entity', ?, ?, ?)`,
+      )
+      .run(createId(), this.workspaceId, sourceType, sourceId, entity.slug ?? slugify(entity.title ?? entity.id ?? entityId), entity.id, nowIso(), nowIso());
+  }
+
+  private syncExplicitMapLink(sourceType: string, sourceId: string, mapId: string | null): void {
+    this.database
+      .prepare("DELETE FROM content_links WHERE workspace_id = ? AND source_type = ? AND source_id = ? AND target_type = 'map'")
+      .run(this.workspaceId, sourceType, sourceId);
+
+    if (!mapId) {
+      return;
+    }
+
+    const map = this.database
+      .prepare("SELECT id, title FROM maps WHERE workspace_id = ? AND id = ?")
+      .get(this.workspaceId, mapId) as { id?: string; title?: string } | undefined;
+
+    if (!map) {
+      return;
+    }
+
+    this.database
+      .prepare(
+        `INSERT INTO content_links
+         (id, workspace_id, source_type, source_id, target_key, target_type, target_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'map', ?, ?, ?)`,
+      )
+      .run(createId(), this.workspaceId, sourceType, sourceId, slugify(map.title ?? map.id ?? mapId), map.id, nowIso(), nowIso());
+  }
+
   private resolveContentTarget(targetKey: string): { targetType: string; targetId: string | null } | null {
     const entity = this.database
       .prepare("SELECT id, slug FROM entities WHERE workspace_id = ?")
@@ -2502,7 +2555,6 @@ export class CampaignRepository {
     const playerLibraryEntry = this.database
       .prepare("SELECT id, name, slug FROM player_library_entries WHERE workspace_id = ?")
       .all(this.workspaceId) as Array<{ id: string; name: string; slug: string }>;
-
     const entityHit = entity.find((entry) => entry.slug === targetKey);
     if (entityHit) {
       return { targetType: "entity", targetId: entityHit.id };

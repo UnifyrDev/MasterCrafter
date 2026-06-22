@@ -2,13 +2,17 @@ import { dialog, ipcMain } from "electron";
 import { IPC_CHANNELS } from "@shared/constants";
 import type { CampaignService } from "@main/services/CampaignService";
 import { AssetPreviewService } from "@main/services/AssetPreviewService";
+import { AppInfoService } from "@main/services/AppInfoService";
 
 export class IpcController {
   private readonly assetPreviewService = AssetPreviewService.getInstance();
+  private readonly appInfoService = AppInfoService.getInstance();
 
   constructor(private readonly campaignService: CampaignService) {}
 
   register(): void {
+    ipcMain.handle(IPC_CHANNELS.app.info, () => this.appInfoService.getInfo());
+
     ipcMain.handle(IPC_CHANNELS.registry.list, () => this.campaignService.listWorkspaces());
     ipcMain.handle(IPC_CHANNELS.registry.create, (_, input) => this.campaignService.createWorkspace(input));
     ipcMain.handle(IPC_CHANNELS.registry.rename, (_, input) => this.campaignService.renameWorkspace(input));
@@ -87,6 +91,7 @@ export class IpcController {
 
     ipcMain.handle(IPC_CHANNELS.search.query, (_, input) => this.campaignService.search(input));
     ipcMain.handle(IPC_CHANNELS.assets.readImageDataUrl, (_, absolutePath: string) => this.assetPreviewService.readImageDataUrl(absolutePath));
+    ipcMain.handle(IPC_CHANNELS.assets.importFile, (_, workspaceId: string, sourceFilePath: string, kind: string) => this.campaignService.importAsset(workspaceId, sourceFilePath, kind));
     ipcMain.handle(IPC_CHANNELS.content.backlinks, (_, workspaceId: string, targetKey: string) => this.campaignService.backlinks(workspaceId, targetKey));
     ipcMain.handle(IPC_CHANNELS.dialog.openFile, async (_, options) => {
       const result = await dialog.showOpenDialog({

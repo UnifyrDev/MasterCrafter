@@ -1,16 +1,16 @@
-name: Distribution Release
+name: Distribution Release 1.0.1-a
 
 on:
   workflow_dispatch:
   push:
     tags:
-      - "v*"
+      - "v1.0.1-a"
 
 permissions:
   contents: write
 
 concurrency:
-  group: distribution-release-${{ github.ref }}
+  group: distribution-release-1.0.1-a-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -52,22 +52,7 @@ jobs:
 
       - name: Read version metadata
         id: version
-        run: |
-          node --input-type=commonjs <<'NODE'
-          const fs = require('node:fs');
-          const path = require('node:path');
-
-          const packageJsonPath = path.join(process.cwd(), 'package.json');
-          const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-          const version = packageJson.version;
-
-          if (typeof version !== 'string' || version.length === 0) {
-            throw new Error(`Invalid package version in ${packageJsonPath}`);
-          }
-
-          const displayVersion = version.replace(/-([0-9A-Za-z]+)$/u, (_, suffix) => suffix.toLowerCase());
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\ndisplayVersion=${displayVersion}\n`);
-          NODE
+        run: node ./scripts/packaging/version-info.mjs
 
       - name: Validate tag version
         if: github.event_name == 'push'
@@ -132,7 +117,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Debian and Fedora packages
+      - name: Build Debian and RPM packages
         run: node ./scripts/package.mjs linux deb rpm
 
       - name: Upload Linux artifacts

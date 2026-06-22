@@ -8,6 +8,9 @@ function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
 
 export function createMasterCrafterApi(): MasterCrafterApi {
   return {
+    app: {
+      getInfo: () => invoke(IPC_CHANNELS.app.info),
+    },
     registry: {
       listWorkspaces: () => invoke(IPC_CHANNELS.registry.list),
       createWorkspace: (input) => invoke(IPC_CHANNELS.registry.create, input),
@@ -103,6 +106,7 @@ export function createMasterCrafterApi(): MasterCrafterApi {
     },
     assets: {
       readImageDataUrl: (absolutePath) => invoke(IPC_CHANNELS.assets.readImageDataUrl, absolutePath),
+      importFile: (workspaceId, sourceFilePath, kind) => invoke(IPC_CHANNELS.assets.importFile, workspaceId, sourceFilePath, kind),
     },
     content: {
       backlinks: (workspaceId, targetKey) => invoke(IPC_CHANNELS.content.backlinks, workspaceId, targetKey),

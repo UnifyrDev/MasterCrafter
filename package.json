@@ -1,6 +1,6 @@
 {
   "name": "unifyr-mastercrafter",
-  "version": "1.1.0",
+  "version": "1.0.1-a",
   "private": true,
   "type": "module",
   "description": "MasterCrafter, the Unifyr D&D campaign preparation desktop app.",

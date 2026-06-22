@@ -2,13 +2,16 @@ import { app, BrowserWindow } from "electron";
 import { dirname } from "node:path";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { APP_NAME } from "@shared/constants";
 import { ConfigService } from "@infra/config/ConfigService";
+import { AppInfoService } from "@main/services/AppInfoService";
 
 export class WindowService {
   private static instance: WindowService | null = null;
 
-  private constructor(private readonly config = ConfigService.getInstance()) {}
+  private constructor(
+    private readonly config = ConfigService.getInstance(),
+    private readonly appInfoService = AppInfoService.getInstance(),
+  ) {}
 
   static getInstance(): WindowService {
     if (!WindowService.instance) {
@@ -22,7 +25,7 @@ export class WindowService {
     const bounds = this.config.get().windowBounds;
     const currentDir = dirname(fileURLToPath(import.meta.url));
     const window = new BrowserWindow({
-      title: APP_NAME,
+      title: this.appInfoService.getWindowTitle(),
       width: bounds.width,
       height: bounds.height,
       x: bounds.x ?? undefined,

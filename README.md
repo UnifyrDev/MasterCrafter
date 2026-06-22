@@ -65,7 +65,7 @@ This is the Timeline Editor, Do you have quests you have made and those are set 
 
 ## Distribution Builds
 
-Build the beta installers from the platform you want to ship:
+Build the distribution installers from the platform you want to ship:
 
 - Windows NSIS installer:
 
@@ -91,11 +91,11 @@ Build the beta installers from the platform you want to ship:
   npm run dist:linux
   ```
 
-`npm run dist` still builds the current host platform by default. For Linux package output, run the Linux distribution commands on a Linux build machine or CI runner.
+`npm run dist` still builds the current host platform by default. For Linux package output, run the Linux distribution commands on a Linux build machine or CI runner. Installer and package filenames now follow the normalized display version, so a source version like `1.0.1-A` is published as `1.0.1a`.
 
 ## GitHub Actions
 
-The repository includes a beta release workflow at [`.github/workflows/beta-release.yml`](C:/Users/xflak/Documents/Unifyr%20Mastercraft/.github/workflows/beta-release.yml).
+The repository includes a dedicated `1.0.1-a` distribution workflow at [`.github/workflows/distribution-release-1.0.1-a.yml`](./.github/workflows/distribution-release-1.0.1-a.yml).
 
-- Manual runs upload Windows and Linux artifacts.
-- Tag pushes like `v1.0.0-beta.1`, `v1.0.0-alpha.1`, or `v1.0.0-rc.1` create a GitHub prerelease and attach the installers.
+- Manual runs upload versioned Windows and Linux artifacts for this release line.
+- Tag pushes like `v1.0.1-a` create a GitHub prerelease and attach the installers.

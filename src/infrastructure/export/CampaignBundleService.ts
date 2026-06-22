@@ -35,7 +35,7 @@ export class CampaignBundleService {
   async exportWorkspace(snapshot: CampaignSnapshotDto, outputFilePath: string): Promise<void> {
     const zip = new JSZip();
     const manifest: BundleManifest = {
-      version: 1,
+      version: 2,
       app: "MasterCrafter",
       exportedAt: nowIso(),
       workspace: snapshot.workspace,

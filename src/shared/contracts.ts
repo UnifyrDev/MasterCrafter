@@ -39,6 +39,13 @@ export type EncounterSessionStatus = "active" | "paused" | "completed";
 
 export type EncounterInitiativeMode = "with-bonus" | "without-bonus";
 
+export interface AppInfoDto {
+  name: string;
+  version: string;
+  displayVersion: string;
+  displayName: string;
+}
+
 export interface WorkspaceSummaryDto {
   id: string;
   name: string;
@@ -51,6 +58,20 @@ export interface WorkspaceSummaryDto {
   createdAt: string;
   updatedAt: string;
   lastOpenedAt: string | null;
+}
+
+export interface WorkspaceAssetDto {
+  id: string;
+  workspaceId: string;
+  kind: string;
+  originalName: string;
+  fileName: string;
+  relativePath: string;
+  absolutePath: string;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CalendarMonthDefinitionDto {
@@ -838,6 +859,7 @@ export interface MasterCrafterSearchApi {
 
 export interface MasterCrafterAssetApi {
   readImageDataUrl(absolutePath: string): Promise<string | null>;
+  importFile(workspaceId: string, sourceFilePath: string, kind: string): Promise<WorkspaceAssetDto>;
 }
 
 export interface MasterCrafterContentApi {
@@ -846,6 +868,10 @@ export interface MasterCrafterContentApi {
 
 export interface MasterCrafterHotkeyApi {
   onToggleSettingsRequested(listener: () => void): () => void;
+}
+
+export interface MasterCrafterAppApi {
+  getInfo(): Promise<AppInfoDto>;
 }
 
 export interface FileDialogOpenOptionsDto {
@@ -872,6 +898,7 @@ export interface MasterCrafterDialogApi {
 }
 
 export interface MasterCrafterApi {
+  app: MasterCrafterAppApi;
   registry: MasterCrafterRegistryApi;
   workspace: MasterCrafterWorkspaceApi;
   entityTypes: MasterCrafterEntityTypeApi;

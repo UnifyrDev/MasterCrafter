@@ -3,6 +3,10 @@ import { computed, reactive } from "vue";
 import { useMasterCrafter } from "@renderer/composables/useMasterCrafter";
 import { confirmationDialogService } from "@renderer/services/ConfirmationDialogService";
 
+const props = defineProps<{
+  appVersion: string | null;
+}>();
+
 const store = useMasterCrafter();
 const state = store.state;
 
@@ -67,7 +71,10 @@ async function deleteWorkspace(workspaceId: string, workspaceName: string): Prom
   <section class="launcher">
     <div class="launcher-hero glass-panel">
       <div>
-        <p class="section-title">MasterCrafter</p>
+        <div class="section-title-row">
+          <p class="section-title">MasterCrafter</p>
+          <span v-if="props.appVersion" class="chip">v{{ props.appVersion }}</span>
+        </div>
         <h1>Campaign workspaces built for map-first D&D prep.</h1>
         <p class="muted">
           Create a campaign workspace, import a bundle, or reopen an existing world with all of its maps, notes, questlines, and timeline state.
@@ -135,6 +142,17 @@ async function deleteWorkspace(workspaceId: string, workspaceName: string): Prom
   font-size: clamp(2rem, 4vw, 3.5rem);
   line-height: 0.95;
   max-width: 15ch;
+}
+
+.section-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.45rem;
+}
+
+.section-title-row .section-title {
+  margin: 0;
 }
 
 .launcher-grid {

@@ -7,6 +7,9 @@ export const CAMPAIGN_BUNDLE_EXTENSION = ".mcpack";
 export const GLOBAL_TIMELINE_LABEL = "Global Timeline";
 
 export const IPC_CHANNELS = {
+  app: {
+    info: "app:info",
+  },
   registry: {
     list: "registry:list",
     create: "registry:create",
@@ -104,6 +107,7 @@ export const IPC_CHANNELS = {
   },
   assets: {
     readImageDataUrl: "assets:read-image-data-url",
+    importFile: "assets:import-file",
   },
   content: {
     backlinks: "content:backlinks",
