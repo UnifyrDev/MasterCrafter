@@ -52,7 +52,22 @@ jobs:
 
       - name: Read version metadata
         id: version
-        run: node ./scripts/packaging/version-info.mjs
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          const packageJsonPath = path.join(process.cwd(), 'package.json');
+          const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+          const version = packageJson.version;
+
+          if (typeof version !== 'string' || version.length === 0) {
+            throw new Error(`Invalid package version in ${packageJsonPath}`);
+          }
+
+          const displayVersion = version.replace(/-([0-9A-Za-z]+)$/u, (_, suffix) => suffix.toLowerCase());
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\ndisplayVersion=${displayVersion}\n`);
+          NODE
 
       - name: Validate tag version
         if: github.event_name == 'push'
