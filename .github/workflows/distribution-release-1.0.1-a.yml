@@ -90,7 +90,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer-${{ needs.prepare-version.outputs.displayVersion }}
-          path: release/*
+          path: |
+            release/*.exe
+            release/*.exe.blockmap
+            release/latest*.yml
           if-no-files-found: error
           retention-days: 14
 
@@ -124,7 +127,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: linux-packages-${{ needs.prepare-version.outputs.displayVersion }}
-          path: release/*
+          path: |
+            release/*.deb
+            release/*.rpm
+            release/latest*.yml
           if-no-files-found: error
           retention-days: 14
 
@@ -164,27 +170,51 @@ jobs:
           name: linux-packages-${{ needs.prepare-version.outputs.displayVersion }}
           path: release-artifacts/linux
 
-      - name: Stage release assets
+      - name: Package release bundles
         shell: bash
+        env:
+          DISPLAY_VERSION: ${{ needs.prepare-version.outputs.displayVersion }}
         run: |
           set -euo pipefail
-          mkdir -p release-artifacts/publish
-          shopt -s nullglob
+          python3 <<'PY'
+          from pathlib import Path
+          from zipfile import ZIP_DEFLATED, ZipFile
+          import os
 
-          assets=(
-            release-artifacts/windows/*.exe
-            release-artifacts/windows/*.exe.blockmap
-            release-artifacts/windows/latest.yml
-            release-artifacts/linux/*.deb
-            release-artifacts/linux/*.rpm
-          )
+          display_version = os.environ["DISPLAY_VERSION"]
+          root = Path("release-artifacts")
+          publish = root / "publish"
+          windows_dir = root / "windows"
+          linux_dir = root / "linux"
+          publish.mkdir(parents=True, exist_ok=True)
 
-          if [ "${#assets[@]}" -eq 0 ]; then
-            echo "No release assets were staged."
-            exit 1
-          fi
+          def collect(base_dir, *patterns):
+            files = []
+            seen = set()
+            for pattern in patterns:
+              for file in sorted(base_dir.glob(pattern)):
+                if file.is_file() and file not in seen:
+                  seen.add(file)
+                  files.append(file)
+            return files
 
-          cp -- "${assets[@]}" release-artifacts/publish/
+          def create_bundle(bundle_name, files):
+            if not files:
+              raise SystemExit(f"No files found for {bundle_name}")
+
+            with ZipFile(publish / bundle_name, "w", compression=ZIP_DEFLATED) as archive:
+              for file in files:
+                archive.write(file, arcname=file.name)
+
+          windows_files = collect(windows_dir, "*.exe", "*.exe.blockmap", "latest*.yml")
+          create_bundle(f"MasterCrafter-Windows-{display_version}.zip", windows_files)
+
+          linux_metadata = collect(linux_dir, "latest*.yml")
+          deb_files = collect(linux_dir, "*.deb") + linux_metadata
+          rpm_files = collect(linux_dir, "*.rpm") + linux_metadata
+          create_bundle(f"MasterCrafter-Deb-{display_version}.zip", deb_files)
+          create_bundle(f"MasterCrafter-Rpm-{display_version}.zip", rpm_files)
+          PY
 
       - name: Publish GitHub prerelease
         uses: softprops/action-gh-release@v2
@@ -194,8 +224,10 @@ jobs:
           name: ${{ steps.release.outputs.release_name }}
           overwrite_files: ${{ steps.release.outputs.overwrite_files }}
           preserve_order: true
+          working_directory: release-artifacts/publish
           files: |
-            release-artifacts/publish/*
+            *.zip
+          fail_on_unmatched_files: true
           generate_release_notes: true
           prerelease: true
           draft: false
