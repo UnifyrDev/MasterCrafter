@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: distribution-release-1.0.1-a-${{ github.ref }}
+  group: distribution-release-1.0.1-a
   cancel-in-progress: true
 
 env:
@@ -146,6 +146,16 @@ jobs:
         with:
           name: linux-packages-${{ needs.prepare-version.outputs.displayVersion }}
           path: release-artifacts/linux
+
+      - name: Remove existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: v${{ needs.prepare-version.outputs.version }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then
+            gh release delete "$RELEASE_TAG" --repo "$REPOSITORY" -y
+          fi
 
       - name: Publish GitHub prerelease
         uses: softprops/action-gh-release@v2
