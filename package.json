@@ -1,6 +1,6 @@
 {
   "name": "unifyr-mastercrafter",
-  "version": "1.0.1a",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "MasterCrafter, the Unifyr D&D campaign preparation desktop app.",
@@ -13,11 +13,12 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "dist:win": "electron-vite build && electron-builder --win nsis",
-    "dist:linux": "electron-vite build && electron-builder --linux deb rpm",
-    "dist:linux:deb": "electron-vite build && electron-builder --linux deb",
-    "dist:linux:rpm": "electron-vite build && electron-builder --linux rpm",
-    "dist": "electron-vite build && electron-builder",
+    "dist:all": "node ./scripts/package.mjs all",
+    "dist:win": "node ./scripts/package.mjs win",
+    "dist:linux": "node ./scripts/package.mjs linux deb rpm",
+    "dist:linux:deb": "node ./scripts/package.mjs linux deb",
+    "dist:linux:rpm": "node ./scripts/package.mjs linux rpm",
+    "dist": "electron-vite build && electron-builder --publish never",
     "typecheck": "vue-tsc --noEmit -p tsconfig.renderer.json && tsc -p tsconfig.node.json --noEmit",
     "postinstall": "node ./scripts/postinstall.js"
   },
@@ -45,6 +46,7 @@
   "build": {
     "appId": "com.unifyr.mastercrafter",
     "productName": "MasterCrafter",
+    "publish": "never",
     "asar": true,
     "directories": {
       "output": "release"
@@ -54,6 +56,7 @@
       "package.json"
     ],
     "win": {
+      "artifactName": "${productName} Setup ${version}.${ext}",
       "target": [
         "nsis"
       ]
@@ -65,6 +68,7 @@
     },
     "linux": {
       "maintainer": "Vyxian <bombavyxianwitch@gmail.com>",
+      "artifactName": "${productName}-${version}.${ext}",
       "target": [
         "deb",
         "rpm"
