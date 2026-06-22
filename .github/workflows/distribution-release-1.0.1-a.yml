@@ -164,6 +164,28 @@ jobs:
           name: linux-packages-${{ needs.prepare-version.outputs.displayVersion }}
           path: release-artifacts/linux
 
+      - name: Stage release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifacts/publish
+          shopt -s nullglob
+
+          assets=(
+            release-artifacts/windows/*.exe
+            release-artifacts/windows/*.exe.blockmap
+            release-artifacts/windows/latest.yml
+            release-artifacts/linux/*.deb
+            release-artifacts/linux/*.rpm
+          )
+
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "No release assets were staged."
+            exit 1
+          fi
+
+          cp -- "${assets[@]}" release-artifacts/publish/
+
       - name: Publish GitHub prerelease
         uses: softprops/action-gh-release@v2
         with:
@@ -173,8 +195,7 @@ jobs:
           overwrite_files: ${{ steps.release.outputs.overwrite_files }}
           preserve_order: true
           files: |
-            release-artifacts/windows/**/*
-            release-artifacts/linux/**/*
+            release-artifacts/publish/*
           generate_release_notes: true
           prerelease: true
           draft: false
