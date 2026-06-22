@@ -53,7 +53,7 @@ jobs:
       - name: Read version metadata
         id: version
         run: |
-          node <<'NODE'
+          node --input-type=commonjs <<'NODE'
           const fs = require('node:fs');
           const path = require('node:path');
 
@@ -99,7 +99,7 @@ jobs:
         run: npm ci
 
       - name: Build Windows installer
-        run: npm run dist:win
+        run: node ./scripts/package.mjs win
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -133,7 +133,7 @@ jobs:
         run: npm ci
 
       - name: Build Debian and Fedora packages
-        run: npm run dist:linux
+        run: node ./scripts/package.mjs linux deb rpm
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
