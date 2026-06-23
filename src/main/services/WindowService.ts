@@ -24,6 +24,7 @@ export class WindowService {
   createMainWindow(): BrowserWindow {
     const bounds = this.config.get().windowBounds;
     const currentDir = dirname(fileURLToPath(import.meta.url));
+    const iconPath = this.resolveIconPath(currentDir);
     const window = new BrowserWindow({
       title: this.appInfoService.getWindowTitle(),
       width: bounds.width,
@@ -35,6 +36,7 @@ export class WindowService {
       autoHideMenuBar: true,
       minWidth: 1360,
       minHeight: 860,
+      icon: iconPath,
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,
@@ -75,5 +77,13 @@ export class WindowService {
     });
 
     return window;
+  }
+
+  private resolveIconPath(currentDir: string): string {
+    if (!app.isPackaged) {
+      return path.join(process.cwd(), "public", "favicon.ico");
+    }
+
+    return path.join(currentDir, "../renderer/favicon.ico");
   }
 }

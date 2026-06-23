@@ -97,5 +97,5 @@ Build the distribution installers from the platform you want to ship:
 
 The repository includes a dedicated `1.0.1-a` distribution workflow at [`.github/workflows/distribution-release-1.0.1-a.yml`](./.github/workflows/distribution-release-1.0.1-a.yml).
 
-- Manual runs upload versioned Windows and Linux artifacts for this release line.
-- Tag pushes like `v1.0.1-a` create a GitHub prerelease and attach the installers.
+- Manual workflow dispatches create RC prereleases under unique tags such as `v1.0.1-a-rc.<run-id>.<attempt>` and upload a Windows zip bundle plus separate Debian and RPM zip bundles for that run.
+- Tag pushes like `v1.0.1-a` create a GitHub prerelease and attach the zip bundles.
